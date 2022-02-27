@@ -11,7 +11,9 @@ import (
 	"github.com/uptrace/bunrouter"
 )
 
-func defaultLogger(out io.Writer, latency time.Duration) zerolog.Logger {
+func defaultLogger(
+	out io.Writer, latency time.Duration, code int, method, path string,
+) zerolog.Logger {
 	logger := zerolog.New(out).
 		Output(
 			zerolog.ConsoleWriter{
@@ -21,7 +23,10 @@ func defaultLogger(out io.Writer, latency time.Duration) zerolog.Logger {
 		).
 		With().
 		Timestamp().
+		Int("status", code).
 		Dur("latency", latency).
+		Str("method", method).
+		Str("path", path).
 		Logger()
 
 	return logger
@@ -32,7 +37,7 @@ type Option func(*config)
 
 // Config defines the config for logger middleware.
 type config struct {
-	logger func(io.Writer, time.Duration) zerolog.Logger
+	logger func(io.Writer, time.Duration, int, string, string) zerolog.Logger
 	// UTC a boolean stating whether to use UTC time zone or local.
 	utc            bool
 	skipPath       []string
@@ -49,7 +54,7 @@ type config struct {
 }
 
 // WithLogger set custom logger func
-func WithLogger(fn func(io.Writer, time.Duration) zerolog.Logger) Option {
+func WithLogger(fn func(io.Writer, time.Duration, int, string, string) zerolog.Logger) Option {
 	return func(c *config) {
 		c.logger = fn
 	}
@@ -154,11 +159,18 @@ func (m *middleware) Middleware(next bunrouter.HandlerFunc) bunrouter.HandlerFun
 		wrapped := wrapResponseWriter(w)
 		err := next(wrapped, req)
 		dur := time.Since(now)
-		logger := m.c.logger(m.c.output, dur)
+		code := wrapped.Status
+		logger := m.c.logger(m.c.output, dur, code, req.Method, req.URL.String())
 		msg := "Request"
-		logger.WithLevel(m.c.defaultLevel).
-			Int("status", wrapped.Status).
-			Msg(msg)
+
+		switch {
+		case code >= http.StatusBadRequest && code < http.StatusInternalServerError:
+			logger.WithLevel(m.c.clientErrorLevel).Msg(msg)
+		case code >= http.StatusInternalServerError:
+			logger.WithLevel(m.c.serverErrorLevel).Msg(msg)
+		default:
+			logger.WithLevel(m.c.defaultLevel).Msg(msg)
+		}
 
 		return err
 	}
