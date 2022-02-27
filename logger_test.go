@@ -10,7 +10,7 @@ import (
 	"github.com/uptrace/bunrouter"
 )
 
-//Test the router. It serves as aboilerplate. Remove this soon.
+//Test the router. It serves as a boilerplate. Remove this soon.
 func TestRequestWithContext(t *testing.T) {
 	router := bunrouter.New()
 	router.GET("/user/:param", func(w http.ResponseWriter, req bunrouter.Request) error {
@@ -45,4 +45,7 @@ func TestMiddleware(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/user/hello", nil)
 	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Error("status not ok", w.Code)
+	}
 }

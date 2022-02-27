@@ -3,11 +3,11 @@ package reqlogger
 import (
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bunrouter"
 )
 
@@ -21,6 +21,7 @@ func defaultLogger(out io.Writer, latency time.Duration) zerolog.Logger {
 		).
 		With().
 		Timestamp().
+		Dur("latency", latency).
 		Logger()
 
 	return logger
@@ -101,23 +102,64 @@ func WithServerErrorLevel(lvl zerolog.Level) Option {
 	}
 }
 
-type middleware struct{}
+type middleware struct {
+	c *config
+}
 
 // NewMiddleware creates a middleware instance ...
-func NewMiddleware() bunrouter.MiddlewareFunc {
+func NewMiddleware(opts ...Option) bunrouter.MiddlewareFunc {
 	m := &middleware{}
+	c := &config{
+		logger:           defaultLogger,
+		defaultLevel:     zerolog.InfoLevel,
+		clientErrorLevel: zerolog.WarnLevel,
+		serverErrorLevel: zerolog.ErrorLevel,
+		output:           os.Stdout,
+	}
+
+	// Loop through each option
+	for _, opt := range opts {
+		// Call the option giving the instantiated
+		opt(c)
+	}
+	m.c = c
 	return m.Middleware
+}
+
+// responseWriter is a minimal wrapper for http.ResponseWriter that allows the
+// written HTTP status code to be captured for logging.
+type responseWriter struct {
+	http.ResponseWriter
+	Status int
+}
+
+func wrapResponseWriter(w http.ResponseWriter) *responseWriter {
+	return &responseWriter{ResponseWriter: w, Status: http.StatusOK}
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+
+	rw.Status = code
+	rw.ResponseWriter.WriteHeader(code)
+
+	return
 }
 
 // Middleware ...
 func (m *middleware) Middleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 
 	return func(w http.ResponseWriter, req bunrouter.Request) error {
-		now := time.Now()
-		err := next(w, req)
-		dur := time.Since(now)
 
-		log.Info().Dur("latency", dur).Msgf("%v")
+		now := time.Now()
+		wrapped := wrapResponseWriter(w)
+		err := next(wrapped, req)
+		dur := time.Since(now)
+		logger := m.c.logger(m.c.output, dur)
+		msg := "Request"
+		logger.WithLevel(m.c.defaultLevel).
+			Int("status", wrapped.Status).
+			Msg(msg)
+
 		return err
 	}
 }
