@@ -111,8 +111,8 @@ type middleware struct {
 	c *config
 }
 
-// NewMiddleware creates a middleware instance ...
-func NewMiddleware(opts ...Option) bunrouter.MiddlewareFunc {
+// NewLoggingMiddleware creates a middleware instance ...
+func NewLoggingMiddleware(opts ...Option) bunrouter.MiddlewareFunc {
 	m := &middleware{}
 	c := &config{
 		logger:           defaultLogger,
@@ -146,7 +146,6 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 	rw.Status = code
 	rw.ResponseWriter.WriteHeader(code)
-
 	return
 }
 
