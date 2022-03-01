@@ -1,7 +1,9 @@
 package reqlogger
 
 import (
+	"bufio"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -135,18 +137,37 @@ func NewLoggingMiddleware(opts ...Option) bunrouter.MiddlewareFunc {
 // written HTTP status code to be captured for logging.
 type responseWriter struct {
 	http.ResponseWriter
-	Status int
+	status int
+	size   int
 }
 
 func wrapResponseWriter(w http.ResponseWriter) *responseWriter {
-	return &responseWriter{ResponseWriter: w, Status: http.StatusOK}
+	return &responseWriter{ResponseWriter: w, status: http.StatusOK}
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
 
-	rw.Status = code
+	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
 	return
+}
+
+// (rw *responseWriter) Status ...
+func (rw *responseWriter) Status() int {
+	return rw.status
+}
+
+// (rw *responseWriter) Size ...
+func (rw *responseWriter) Size() int {
+	return rw.size
+}
+
+// Hijack implements the http.Hijacker interface.
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if rw.size < 0 {
+		rw.size = 0
+	}
+	return rw.ResponseWriter.(http.Hijacker).Hijack()
 }
 
 // Middleware ...
@@ -158,7 +179,7 @@ func (m *middleware) Middleware(next bunrouter.HandlerFunc) bunrouter.HandlerFun
 		wrapped := wrapResponseWriter(w)
 		err := next(wrapped, req)
 		dur := time.Since(now)
-		code := wrapped.Status
+		code := wrapped.Status()
 		logger := m.c.logger(m.c.output, dur, code, req.Method, req.URL.String())
 		msg := "Request"
 
